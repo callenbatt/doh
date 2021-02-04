@@ -2,6 +2,37 @@ const { db } = require("../firebase/admin");
 const fetch = require("node-fetch");
 const { document } = require("firebase-functions/lib/providers/firestore");
 
+const digdoh = async (host) => {
+  try {
+    const response = await fetch(`https://dns.google/resolve?name=${host}`);
+    return await response.json();
+  } catch (e) {
+    return { error: e };
+  }
+};
+
+const formatDocumentDataOnCreate = (dig) => {
+  const date = new Date().toISOString();
+  return {
+    created: date,
+    updated: date,
+    monitoring: true,
+    Status: dig.Status,
+    Question: dig.Question,
+    Answer: dig.Answer,
+  };
+};
+
+const checkIfHostExistsOnCreate = (documentSnapshot, host) => {
+  const data = documentSnapshot.data();
+  const dns = data.dns || [];
+  return dns.length
+    ? dns.find((dig) => {
+        return dig.Question[0].name === `${host}.`;
+      })
+    : false;
+};
+
 exports.dns = async (req, res) => {
   const querySnapshot = await db.collection("dns").get();
   const docs = await Promise.all(
@@ -111,55 +142,39 @@ const answerCompare = (arr1, arr2, keys = Object.keys(arr1[0])) => {
 };
 
 exports.createDNSDoc = async (req, res) => {
-  const collectionReference = db.collection("dns");
-  const documentReference = await collectionReference.doc(req.body.namespace);
-  const documentSnapshot = await documentReference.get();
+  try {
+    const collectionReference = db.collection("dns");
+    const documentReference = await collectionReference.doc(req.body.namespace);
+    const documentSnapshot = await documentReference.get();
 
-  if (documentSnapshot.exists) {
-    const data = documentSnapshot.data();
-    const hostExists = data.dns.length
-      ? data.dns.find((host) => {
-          return host.Question[0].name === `${req.body.host}.`;
-        })
-      : false;
-    if (hostExists) {
+    if (
+      documentSnapshot.exists &&
+      checkIfHostExistsOnCreate(documentSnapshot, req.body.host)
+    ) {
+      res
+        .status(422)
+        .json({ message: "this hostname already exists for this client" });
+      return;
+    }
+    
+    const dig = await digdoh(req.body.host);
+    const query = formatDocumentDataOnCreate(dig);
+    
+    if (documentSnapshot.exists) {
+      documentReference.update({ dns: [...dns, query] });
+      res.status(200).json({ message: "hostname added", query: query });
+      return;
+    } else {
+      collectionReference.doc(req.body.namespace).set({ dns: [query] });
       res
         .status(200)
-        .json({ message: "this hostname already exists for this client" });
-    } else {
-      const dnsQuery = await fetch(
-        `https://dns.google/resolve?name=${req.body.host}`
-      );
-      const dnsQueryJson = await dnsQuery.json();
-      const date = new Date().toISOString();
-      const query = {
-        created: date,
-        updated: date,
-        monitoring: true,
-        Status: dnsQueryJson.Status,
-        Question: dnsQueryJson.Question,
-        Answer: dnsQueryJson.Answer,
-      };
-      documentReference.update({ dns: [...data.dns, query]});
-      res.status(200).json({ message: "hostname added", query: query });
+        .json({ message: "document created and hostname added", query: query });
+        return;
     }
-  } else {
-    const dnsQuery = await fetch(
-      `https://dns.google/resolve?name=${req.body.host}`
-    );
-    const dnsQueryJson = await dnsQuery.json();
-    const date = new Date().toISOString();
-    const query = {
-      created: date,
-      updated: date,
-      monitoring: true,
-      Status: dnsQueryJson.Status,
-      Question: dnsQueryJson.Question,
-      Answer: dnsQueryJson.Answer,
-    };
-    collectionReference.doc(req.body.namespace).set({
-      dns: [query],
-    });
-    res.status(200).json({ message: "document created and hostname added", query: query });
+  } catch (e) {
+    res
+      .status(500)
+      .json({ error: e, message: "an error occurred with this request" });
+    return;
   }
 };
