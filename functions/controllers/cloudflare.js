@@ -1,22 +1,42 @@
-// we assume we have a reference of "total" domains somewhere
-const HOSTNAME_TOTAL = 6691
+const fetch = require("node-fetch");
 
-// the cloudflare endpoint
-const BASE_URL = 'https://api.cloudflare.com/client/v4/zones/707ba56801b5cb684fb75f62abdbefcf/custom_hostnames?per_page=50';
-
-// figure out how many pages we need to fetch
-const pages = Array.from(Array(Math.ceil(HOSTNAME_TOTAL/50)), (e,i)=>i+1);
-
-
-async function getAllHostnames() {
+const requestHostnames = async (page) => {
   try {
-    return await Promise.all(pages.map(page => {
-      const url = `${BASE_URL}&page=${page}`;
-      const res = await fetch(url);
-      return await res.json()
-    }))
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${zone_id}/custom_hostnames?per_page=50&page=${page}`,
+      {}
+    );
+    return await response.json();
+  } catch (e) {
+    console.error(e);
+    return { error: e };
   }
-  catch(e) {
+};
 
-  }
-}
+const formatResult = (result) => {
+  return result.map((item) => {
+    return {
+      hostname: item.hostname,
+      status: item.ssl.status,
+      dc: item.custom_metadata?.dc,
+      tenant_name: item.custom_metadata?.tenant_name,
+      created_at: item.created_at,
+    };
+  });
+};
+
+const getAllHostnames = async () => {
+  const firstPage = await requestHostnames(1);
+  const pages = Array.from(
+    Array(firstPage.result_info.total_pages - 1),
+    (e, i) => i + 1
+  );
+  const firstData = formatResult(firstPage.result);
+  const restData = await Promise.all(
+    pages.map(async (page) => {
+      const response = await requestHostnames(page);
+      return formatResult(response.result);
+    })
+  );
+  return [...firstData, ...restData.flat()]
+};

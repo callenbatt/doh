@@ -156,10 +156,10 @@ exports.createDNSDoc = async (req, res) => {
         .json({ message: "this hostname already exists for this client" });
       return;
     }
-    
+
     const dig = await digdoh(req.body.host);
     const query = formatDocumentDataOnCreate(dig);
-    
+
     if (documentSnapshot.exists) {
       documentReference.update({ dns: [...dns, query] });
       res.status(200).json({ message: "hostname added", query: query });
@@ -169,7 +169,7 @@ exports.createDNSDoc = async (req, res) => {
       res
         .status(200)
         .json({ message: "document created and hostname added", query: query });
-        return;
+      return;
     }
   } catch (e) {
     res
