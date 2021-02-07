@@ -1,6 +1,6 @@
 const fetch = require("node-fetch");
 
-const requestHostnames = async (page) => {
+const requestHostnames = async (page = 1) => {
   try {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/zones/${zone_id}/custom_hostnames?per_page=50&page=${page}`,
@@ -26,10 +26,10 @@ const formatResult = (result) => {
 };
 
 const getAllHostnames = async () => {
-  const firstPage = await requestHostnames(1);
+  const firstPage = await requestHostnames();
   const pages = Array.from(
     Array(firstPage.result_info.total_pages - 1),
-    (e, i) => i + 1
+    (e, i) => i + 2
   );
   const firstData = formatResult(firstPage.result);
   const restData = await Promise.all(
